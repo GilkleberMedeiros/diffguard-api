@@ -530,6 +530,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "pydantic-settings" },
     { name = "python-multipart" },
+    { name = "simhash" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -560,6 +561,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "simhash", specifier = ">=2.1.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
 provides-extras = ["dev"]
@@ -2148,6 +2150,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f3/61/d7545dafb7ac2230c70d38d31cbfe4cc64f7144dc41f6e4e4b78ecd9f5bb/requests-toolbelt-1.0.0.tar.gz", hash = "sha256:7681a0a3d047012b5bdc0ee37d7f8f07ebe76ab08caeccfc3921ce23c88d5bc6", size = 206888, upload-time = "2023-05-01T04:11:33.229Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3f/51/d4db610ef29373b879047326cbf6fa98b6c1969d6f6dc423279de2b1be2c/requests_toolbelt-1.0.0-py2.py3-none-any.whl", hash = "sha256:cccfdd665f0a24fcf4726e690f65639d272bb0637b9b92dfd91a5568ccf6bd06", size = 54481, upload-time = "2023-05-01T04:11:28.427Z" },
+]
+
+[[package]]
+name = "simhash"
+version = "2.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/84/2a/2bed94a174fb53931c67c3581869d9c485db7ea64e0c7e8a7d6018c6defe/simhash-2.1.2.tar.gz", hash = "sha256:533bc8cf41e4e6dd83f0b1847363516bf3323e0fa92e63d9e6df4e281e882e1b", size = 4660, upload-time = "2022-03-03T01:24:26.765Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2e/86/0f4a39a50fcf510753b7abd98b728e66c14fefe89bad9ef5824745bf7b9f/simhash-2.1.2-py3-none-any.whl", hash = "sha256:968de16c82c227a631aa00e57ab58f9e4ee9e47e8408486199a9eb59c1d6979b", size = 4714, upload-time = "2022-03-03T01:24:22.255Z" },
 ]
 
 [[package]]

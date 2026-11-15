@@ -1,16 +1,31 @@
-from pydantic import BaseModel, Field
+from typing import Literal
+
+from langchain_core.documents import Document as LCDocument
 
 
+class DocumentChunk(LCDocument):
+  """
+  Document Chunk.
+  """
+  type: Literal["DocumentChunk"] = "DocumentChunk"
 
-class DocumentChunk(BaseModel):
-  content: str = Field(min_length=1)
+  @classmethod
+  def from_lc_document(cls, doc: LCDocument): 
+    return cls(id=doc.id, metadata=doc.metadata, page_content=doc.page_content, type="DocumentChunk")
 
-  metadata: dict[str, any]
-
-
-class Document(BaseModel):
-  content: str = Field(min_length=1)
+class Document(LCDocument):
+  """
+  Full Document
+  """
   chunks: list[DocumentChunk] | None = None
 
-  metadata: dict[str, any]
+  @classmethod
+  def from_lc_document(cls, doc: LCDocument, chunks: list[DocumentChunk] | None = None): 
+    return cls(
+      id=doc.id, 
+      metadata=doc.metadata, 
+      page_content=doc.page_content, 
+      type=doc.type, chunks=chunks
+    )
+
 

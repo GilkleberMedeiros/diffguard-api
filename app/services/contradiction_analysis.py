@@ -4,11 +4,14 @@ from attr import dataclass
 from simhash import Simhash
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from app.dtos import Document, DocumentChunk
+from app.services.ml_models import MLModelsService
+
 
 @dataclass
 class ChunkPair:
-  original_chunk: str
-  revised_chunk: str
+  original_chunk: DocumentChunk
+  revised_chunk: DocumentChunk
 
 @dataclass
 class DocumentsRevision: 
@@ -22,15 +25,15 @@ class DocumentsRevision:
   """
 
   pairs: list[ChunkPair]
-  added: list[str]
-  removed: list[str]
+  added: list[DocumentChunk]
+  removed: list[DocumentChunk]
 
 
 
 class ContradictionAnalysisService:
 
   @staticmethod
-  def structurally_split_document(doc: str) -> list[str]:
+  def structurally_split_document(doc: Document):
     text_splitter = RecursiveCharacterTextSplitter(
       chunk_size=1500,
       chunk_size_alignment=False,
@@ -46,11 +49,15 @@ class ContradictionAnalysisService:
       ]
     )
 
-    chunks = text_splitter.split_text(doc)
-    return chunks
+    chunks = text_splitter.split_text(doc.page_content)
+    doc.chunks = [ 
+      DocumentChunk(metadata={"chunk_index": i}, page_content=chunks[i]) 
+      for i in range(len(chunks)) 
+    ]
+    return doc
 
   @staticmethod
-  def classify_chunks(original_doc: list[str], revised_doc: list[str]):
+  def classify_chunks(original_doc: Document, revised_doc: Document):
     """
     Classifica os chunks comparando os documentos. Pode classificar os chunks em 
     pares (par entre chunk do documento original e chunk do documento revisado), 
@@ -79,8 +86,17 @@ class ContradictionAnalysisService:
       text = re.findall(r"\w+", texto.lower())
       return list(filter(text))
 
-    o_doc = [ (chunk, Simhash(tokenizer(chunk))) for chunk in original_doc ]
-    r_doc = [ (chunk, Simhash(tokenizer(chunk))) for chunk in revised_doc ]
+    if original_doc.chunks is None or revised_doc.chunks is None:
+      raise Exception("A classificação de chunks precisa que os documentos contenham seus respectivos chunks!")
+
+    o_doc = [ 
+      (chunk, Simhash(tokenizer(chunk.page_content))) 
+      for chunk in original_doc.chunks 
+    ]
+    r_doc = [ 
+      (chunk, Simhash(tokenizer(chunk.page_content))) 
+      for chunk in revised_doc.chunks 
+    ]
 
     r_doc_chunks_non_paired = list(range(len(r_doc)))
     for chunk in o_doc:
@@ -113,7 +129,7 @@ class ContradictionAnalysisService:
     return DocumentsRevision(pairs, added, removed)
 
   @staticmethod
-  def delta_filter(original_doc: list[str], revised_doc: list[str]) -> list[int]:
+  def delta_filter(original_doc: list[DocumentChunk], revised_doc: list[DocumentChunk]) -> list[int]:
     """
     Retorna uma lista de índices que corresponde aos índices dos chunks do documento 
     revisado que são diferentes dos mesmos chunks (mesmo índice) do documento original.
@@ -126,7 +142,7 @@ class ContradictionAnalysisService:
     for idx in range(len(original_doc)):
       o_chunk = original_doc[idx]
       r_chunk = revised_doc[idx]
-      if o_chunk != r_chunk:
+      if o_chunk.page_content != r_chunk.page_content:
         diff_idxs.append(idx)
 
     return diff_idxs

@@ -146,3 +146,111 @@ class ContradictionAnalysisService:
         diff_idxs.append(idx)
 
     return diff_idxs
+
+  @staticmethod
+  def get_chunks_references(
+    revised_doc: list[DocumentChunk], 
+    mod_or_added_chunks: list[DocumentChunk]
+  ) -> list[tuple[DocumentChunk, list[DocumentChunk]]]: 
+    """
+    Dado os chunks de texto que foram modificados (ou adicionados) do documento 
+    original para a versão revisada: Procure, em todo o texto do 
+    documento revisado refências aos chunks modificados (ou adicionados) ou trechos  
+    aos quais os chunks modificados (ou adicionados) fazem referência. 
+
+    :returns: Cada chunk modificado acompanhado de uma lista de chunks referenciados. 
+    """
+    from langchain_chroma import Chroma
+
+    embedder = MLModelsService.get_main_embeddings_model()
+
+    # Constroí Vector Store temporário eliminando chunks duplicados
+    texts = []
+    metadatas = []
+    mod_or_added_texts = { chunk.page_content for chunk in mod_or_added_chunks }
+    for chunk in revised_doc:
+      if chunk.page_content not in mod_or_added_texts:
+        texts.append(chunk.page_content)
+        metadatas.append(chunk.metadata)
+      
+    vstore = Chroma.from_texts(texts=texts, embedding=embedder, metadatas=metadatas)
+
+    # Realizar as buscas por referências cruzadas
+    k = 7
+    mapped_references = []
+    for chunk in mod_or_added_chunks:
+      results = vstore.similarity_search_with_score(chunk.page_content, k)
+      results = [ 
+        DocumentChunk.from_lc_document(r)
+        for r in results 
+      ]
+      mapped_references.append(tuple(chunk, results))
+
+    return mapped_references
+
+  @staticmethod
+  def build_context_windows(
+    mapped_references: list[tuple[DocumentChunk, list[DocumentChunk]]], 
+    window_size: int | None = 1
+  ): 
+    """
+    Constrói as janelas de contexto contendo os chunks alterados/adicionados e 
+    referências à serem enviadas ao modelo llm para análise. 
+
+    #### As janelas de contexto retornadas seguem o seguinte formato: \n
+    \"""\n
+    \## Trecho Alterado #1\n
+    Trecho/Chunk do texto do documento revisado que foi alterado ou 
+    adicionado quando comparado com equivalente do documento original. \n\n
+
+    \### Trechos que fazem referência ou são referenciados pelo Trecho 
+    Alterado #1: \n\n
+
+    \----------\n\n
+
+    \##### Referência #1\n
+    Trecho referencidado no trecho alterado que pode estar desatualizado. \n\n
+
+    \##### Referência #2\n
+    ... \n\n
+
+    \n======================================== (Se window_size > 1)\n\n
+
+    \## Trecho Alterado #2\n
+    ...\n
+    \"""
+
+    :param mapped_references: O chunks alterados/adicionados com suas referências mapeadas.
+    :param window_size: Determina Quantos chunks (+ suas referências) serão colocados 
+    em cada janela. 
+
+    :returns: Lista contendo as janelas em formato string com chunks e  
+    referências formatadas.  
+    """
+
+    windows = []
+    step = window_size if window_size > 1 else len(mapped_references)
+    for idx in range(0, len(mapped_references), step):
+      maps = mapped_references[idx:idx+step]
+
+      window = ""
+      for i in range(len(maps)):
+        window += f"## Trecho Alterado #{i+1}\n"
+        window += maps[i][0].page_content + "\n\n"
+
+        refs = maps[i][1]
+        for j in range(len(refs)): 
+          window += (
+            "### Trechos que fazem referência ou são referenciados ", 
+            f"pelo Trecho Alterado #{i+1}:\n\n"
+          )
+          window += "----------\n\n"
+          window += f"##### Referência #{j+1}\n"
+          window += refs[j].page_content + "\n\n"
+
+        if len(maps) > 1:
+          window += "\n========================================\n\n"
+
+      windows.append(window)
+
+    return windows

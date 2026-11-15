@@ -26,11 +26,16 @@ class EnvSettings(BaseSettings):
   )
 
   # ── LLM ──────────────────────────────────────────────────────────────── #
-  llm_provider: str = Field(default="openai", description="Provedor do LLM (openai | google | ollama)")
-  llm_model: str = Field(default="gpt-4o", description="Identificador do modelo")
+  llm_provider: str = Field(default="google", description="Provedor do LLM (openai | google | ollama)")
+  llm_model: str = Field(default="gemini-3.1-flash-lite", description="Identificador do modelo")
   llm_api_key: str | None = Field(default=None, description="Chave de API do provedor")
   llm_temperature: float = Field(default=0.1, ge=0.0, le=2.0, description="Temperatura de geração")
   llm_max_tokens: int = Field(default=4096, gt=0, description="Máximo de tokens por resposta")
+
+  # ── Embedding ────────────────────────────────────────────────────────── #
+  embedding_provider: str = Field(default="google", description="Provedor do Embedding (openai | google | ollama)")
+  embedding_model: str = Field(default="models/gemini-embedding-2", description="Identificador do modelo")
+  embedding_api_key: str | None = Field(default=None, description="Chave de API do provedor")
 
   # ── Limites ───────────────────────────────────────────────────────────── #
   max_document_size_kb: int = Field(default=2048, gt=0, description="Tamanho máximo de documento (KB)")

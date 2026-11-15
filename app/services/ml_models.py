@@ -1,6 +1,6 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import ChatOpenAI
-from langchain_ollama import ChatOllama
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_ollama import ChatOllama, OllamaEmbeddings
 
 from app.configs import config
 
@@ -22,9 +22,26 @@ class MLModelsService:
     return llm
 
   @staticmethod
+  def get_main_embeddings_model() -> GoogleGenerativeAIEmbeddings | OpenAIEmbeddings | OllamaEmbeddings:
+    model_name = config.env.embed_model
+    provider = config.env.embed_provider
+    api_key = config.env.embed_api_key
+
+    method_name = f"_load_embedding_model_{provider}"
+    load = getattr(MLModelsService, method_name)
+
+    embedding = load(model_name, **{"api_key": api_key})
+    return embedding
+
+  @staticmethod
   @property
   def main_llm_model() -> str: 
     return config.env.llm_model
+
+  @staticmethod
+  @property
+  def main_embedding_model() -> str:
+    return config.env.embed_model
 
 
   @staticmethod
@@ -48,3 +65,17 @@ class MLModelsService:
     kwargs.pop("api_key", None)
 
     return ChatOllama(model=model, **kwargs)
+
+  @staticmethod
+  def _load_embedding_model_google(model: str, **kwargs): 
+    return GoogleGenerativeAIEmbeddings(model=model, **kwargs)
+
+  @staticmethod
+  def _load_embedding_model_openai(model: str, **kwargs): 
+    return OpenAIEmbeddings(model=model, **kwargs)
+
+  @staticmethod
+  def _load_embedding_model_ollama(model: str, **kwargs): 
+    kwargs.pop("api_key", None)
+
+    return OllamaEmbeddings(model=model, **kwargs)

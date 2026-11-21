@@ -2,9 +2,12 @@ import re
 
 from attr import dataclass
 from simhash import Simhash
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.dtos import Document, DocumentChunk
+from app.schemas.response import ContradictionResult
 from app.services.ml_models import MLModelsService
 
 
@@ -31,6 +34,103 @@ class DocumentsRevision:
 
 
 class ContradictionAnalysisService:
+
+  SYSTEM_PROMPT = """Você é o motor central de auditoria lógica e detecção de contradições do DiffGuard, especializado em análise crítica de documentos técnicos, contratos, normas e trabalhos acadêmicos (TCCs).
+
+  Sua missão é realizar uma análise rigorosa, cética e minuciosa dos blocos de alteração fornecidos. Cada bloco contém um **Trecho Alterado** e suas respectivas **Referências** (trechos inalterados do documento que possuem dependência explícita ou semântica com ele).
+
+  DIRETRIZES DE ANÁLISE:
+  1. **Rigor Lógico e Ceticismo:** Não assuma que a alteração é válida ou coerente. Procure ativamente por brechas, inversões de obrigações (ex: "deve" vs. "não deve"), conflitos de prazos, valores numéricos, escopos, condições ou penalidades entre o Trecho Alterado e cada uma das Referências listadas.
+  2. **Conflitos Múltiplos:** Se um mesmo Trecho Alterado entrar em conflito com mais de uma Referência diferente, você deve gerar um item separado no JSON para cada conflito detectado. O mesmo vale para conflitos de Trechos Alterados diferentes.
+  3. **Classificação de Severidade:**
+    - `"high"`: Incompatibilidade direta que gera quebra de contrato, violação de norma regulamentadora, anulação de obrigações fundamentais ou impossibilidade lógica/técnica de execução.
+    - `"medium"`: Ambiguidade severa ou desalinhamento de prazos, marcos ou valores que exige reescrita urgente para evitar litígios ou falhas sistêmicas.
+    - `"low"`: Desalinhamento menor de terminologia ou inconsistência formal que não altera a essência jurídica ou técnica, mas prejudica a clareza.
+  4. **Ausência de Conflitos:** Se, após analisar criticamente um Trecho Alterado e suas referências, você não encontrar nenhum conflito relevante (pelo menos de nível `"low"`), **não crie itens falsos**. 
+
+  RETORNO ESPERADO:
+  Siga o schema JSON estruturado informado abaixo. As tuplas descrevem os campos. Caso não encontre conflitos, retorne total_conflicts como 0 e items como uma lista vazia. 
+  Nos campos changed_section e intact_section você deve copiar todo o texto das seções ao invés de apenas parte do texto. 
+  Também, não faça referência aos identificadores do trechos (Trecho Alterado #x) e referências (Referência #x) informados no prompt que você recebeu.  
+  {{
+    "total_conflcts": (type: int),
+    "items": [
+      {{ 
+        "conflict_id": (type: str, description: Identificador único do conflito (ex: 'c1').),
+        "severity": (type: str[high | medium | low], description: Gravidade do conflito.), 
+        "changed_section": (type: str, description: Seção alterada que originou o conflito.),
+        "intact_section": (type: str, description: Seção intacta que entra em conflito."), 
+        "description": (type: str, description: Descrição da natureza da contradição.),
+        "recommendation": (type: str, description: Sugestão de resolução do conflito.) 
+      }}
+    ]
+  }}
+  """
+
+  @staticmethod
+  def analysis(original_document: Document, revised_document: Document, language: str):
+    cls = ContradictionAnalysisService
+    original_document = cls.structurally_split_document(original_document)
+    revised_document = cls.structurally_split_document(revised_document)
+
+    classified = cls.classify_chunks(original_document, revised_document)
+
+    if len(classified.added) == 0 and len(classified.pairs) == 0:
+      raise Exception("A classificação de chunks não classificou nenhum chunk como pares ou adicionados.")
+
+    o_pairs = []
+    r_pairs = []
+    for pair in classified.pairs:
+      o_pairs.append(pair.original_chunk)
+      r_pairs.append(pair.revised_chunk)
+
+    diff_pairs_idxs = cls.delta_filter(o_pairs, r_pairs)
+
+    to_context_windows = []
+    for idx in diff_pairs_idxs:
+      to_context_windows.append(r_pairs[idx])
+
+    to_context_windows.extend(classified.added)
+
+    if len(to_context_windows) <= 0:
+      raise Exception("Nenhum chunk para formação das janelas de contexto após filtragem.")
+
+    to_context_windows = cls.get_chunks_references(revised_document.chunks, to_context_windows)
+    
+    if len(to_context_windows) <= 0:
+      raise Exception("Nenhum chunk para formação das janelas de contexto após mapeamento das referências.")
+    
+    context_windows = cls.build_context_windows(to_context_windows)
+    
+    raw_system_prompt = cls.SYSTEM_PROMPT
+
+    raw_user_prompt = """Analise os seguintes blocos de alterações e suas referências cruzadas em busca de contradições lógicas (os textos estão na seguinte língua {language}):
+
+    {context_window}
+    """.format({"language": language, "context_window": "{context_window}"})
+
+    prompt = ChatPromptTemplate.from_messages([
+      ("system", raw_system_prompt), 
+      ("user", raw_user_prompt)
+    ])
+    llm = MLModelsService.get_main_llm_model()
+    parser = JsonOutputParser(pydantic_object=ContradictionResult)
+    chain = prompt | llm | parser
+    result = ContradictionResult(total_conflicts=0)
+    conflict_id_counter = 0
+    for context in context_windows:
+      r = chain.invoke({"context_window": context})
+
+      if  hasattr(r, "model_dump"):
+        r = r.model_dump()
+
+      for conflict in r["items"]:
+        conflict["conflict_id"] = f"c{conflict_id_counter}"
+        result.items.append(conflict)
+        result.total_conflicts += 1
+        conflict_id_counter += 1
+
+    return result
 
   @staticmethod
   def structurally_split_document(doc: Document):

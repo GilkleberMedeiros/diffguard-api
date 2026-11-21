@@ -23,9 +23,9 @@ class MLModelsService:
 
   @staticmethod
   def get_main_embeddings_model() -> GoogleGenerativeAIEmbeddings | OpenAIEmbeddings | OllamaEmbeddings:
-    model_name = config.env.embed_model
-    provider = config.env.embed_provider
-    api_key = config.env.embed_api_key
+    model_name = config.env.embedding_model
+    provider = config.env.embedding_provider
+    api_key = config.env.embedding_api_key
 
     method_name = f"_load_embedding_model_{provider}"
     load = getattr(MLModelsService, method_name)
@@ -41,7 +41,7 @@ class MLModelsService:
   @staticmethod
   @property
   def main_embedding_model() -> str:
-    return config.env.embed_model
+    return config.env.embedding_model
 
 
   @staticmethod

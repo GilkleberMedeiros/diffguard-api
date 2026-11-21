@@ -36,7 +36,6 @@ class ContradictionAnalysisService:
   def structurally_split_document(doc: Document):
     text_splitter = RecursiveCharacterTextSplitter(
       chunk_size=1500,
-      chunk_size_alignment=False,
       chunk_overlap=200,
       separators=[
         "\n\nCLÁUSULA",
@@ -84,7 +83,7 @@ class ContradictionAnalysisService:
 
     def tokenizer(texto: str):
       text = re.findall(r"\w+", texto.lower())
-      return list(filter(text))
+      return list(filter(None, text))
 
     if original_doc.chunks is None or revised_doc.chunks is None:
       raise Exception("A classificação de chunks precisa que os documentos contenham seus respectivos chunks!")
@@ -114,9 +113,11 @@ class ContradictionAnalysisService:
       # Consider as removed
       if most_similar_chunk_idx is None:
         removed.append(chunk[0])
+        continue
 
       # Remove r_doc chunk idx from non paired IDXs list
-      r_doc_chunks_non_paired.remove(most_similar_chunk_idx)
+      if most_similar_chunk_idx in r_doc_chunks_non_paired:
+        r_doc_chunks_non_paired.remove(most_similar_chunk_idx)
 
       # Add Pair
       r_chunk = r_doc[most_similar_chunk_idx]
@@ -132,7 +133,7 @@ class ContradictionAnalysisService:
   def delta_filter(original_doc: list[DocumentChunk], revised_doc: list[DocumentChunk]) -> list[int]:
     """
     Retorna uma lista de índices que corresponde aos índices dos chunks do documento 
-    revisado que são diferentes dos mesmos chunks (mesmo índice) do documento original.
+    revisado que são diferentes dos mesmos chunks (com mesmo índice) do documento original.
     """
     if len(original_doc) != len(revised_doc):
       raise Exception("Filtro delta não consegue processar listas com tamanhos diferentes!")
@@ -181,10 +182,10 @@ class ContradictionAnalysisService:
     for chunk in mod_or_added_chunks:
       results = vstore.similarity_search_with_score(chunk.page_content, k)
       results = [ 
-        DocumentChunk.from_lc_document(r)
+        DocumentChunk.from_lc_document(r[0])
         for r in results 
       ]
-      mapped_references.append(tuple(chunk, results))
+      mapped_references.append(tuple([chunk, results]))
 
     return mapped_references
 
@@ -240,10 +241,7 @@ class ContradictionAnalysisService:
 
         refs = maps[i][1]
         for j in range(len(refs)): 
-          window += (
-            "### Trechos que fazem referência ou são referenciados ", 
-            f"pelo Trecho Alterado #{i+1}:\n\n"
-          )
+          window += f"### Trechos que fazem referência ou são referenciados pelo Trecho Alterado #{i+1}:\n\n"
           window += "----------\n\n"
           window += f"##### Referência #{j+1}\n"
           window += refs[j].page_content + "\n\n"

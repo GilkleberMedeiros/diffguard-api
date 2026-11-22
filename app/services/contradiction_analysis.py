@@ -31,6 +31,49 @@ class DocumentsRevision:
   added: list[DocumentChunk]
   removed: list[DocumentChunk]
 
+class ContradictionResultParser(ContradictionResult):
+
+  @staticmethod
+  def parse_model_result(model_result: list[dict], *, conflict_id_starts: int = 1):
+
+    if not isinstance(model_result, list):
+      raise ValueError("Parâmetro model_result deve ser uma lista.")
+
+    total_items = 0
+    items = []
+    for i in model_result:
+      if not isinstance(i, dict):
+        raise ValueError("Items da lista devem ser dicionários.")
+
+      item_keys = set(i.keys())
+      expected_keys = {"severity", "changed_section", "intact_section", "description", "recommendation"}
+      if not expected_keys.issubset(item_keys):
+        raise ValueError(f"Item da lista deve ter as seguintes chaves: {expected_keys}")
+
+      items.append({
+        "conflict_id": f"c{conflict_id_starts+total_items}",
+        "severity": i["severity"], 
+        "changed_section": i["changed_section"], 
+        "intact_section": i["intact_section"], 
+        "description": i["description"], 
+        "recommendation": i["recommendation"],
+      })
+      total_items += 1
+    
+    return {"total_conflicts": total_items, "items": items}
+
+  @classmethod
+  def from_model_result(cls, model_result: list[dict], *, conflict_id_starts: int = 1):
+    data = cls.parse_model_result(model_result, conflict_id_starts=conflict_id_starts)
+    
+    return ContradictionResultParser(**data)
+
+  def extend(self, model_result: list):
+    start = self.total_conflicts+1
+    data = ContradictionResultParser.parse_model_result(model_result, conflict_id_starts=start)
+    
+    self.total_conflicts += data["total_conflicts"]
+    self.items.extend(data["items"])
 
 
 class ContradictionAnalysisService:
@@ -49,22 +92,18 @@ class ContradictionAnalysisService:
   4. **Ausência de Conflitos:** Se, após analisar criticamente um Trecho Alterado e suas referências, você não encontrar nenhum conflito relevante (pelo menos de nível `"low"`), **não crie itens falsos**. 
 
   RETORNO ESPERADO:
-  Siga o schema JSON estruturado informado abaixo. As tuplas descrevem os campos. Caso não encontre conflitos, retorne total_conflicts como 0 e items como uma lista vazia. 
+  Siga o schema JSON estruturado informado abaixo. As tuplas descrevem os campos. Caso não encontre conflitos, retorne uma lista vazia ('[]'). 
   Nos campos changed_section e intact_section você deve copiar todo o texto das seções ao invés de apenas parte do texto. 
   Também, não faça referência aos identificadores do trechos (Trecho Alterado #x) e referências (Referência #x) informados no prompt que você recebeu.  
-  {{
-    "total_conflcts": (type: int),
-    "items": [
-      {{ 
-        "conflict_id": (type: str, description: Identificador único do conflito (ex: 'c1').),
-        "severity": (type: str[high | medium | low], description: Gravidade do conflito.), 
-        "changed_section": (type: str, description: Seção alterada que originou o conflito.),
-        "intact_section": (type: str, description: Seção intacta que entra em conflito."), 
-        "description": (type: str, description: Descrição da natureza da contradição.),
-        "recommendation": (type: str, description: Sugestão de resolução do conflito.) 
-      }}
-    ]
-  }}
+  [
+    {{ 
+      "severity": (type: str[high | medium | low], description: Gravidade do conflito.), 
+      "changed_section": (type: str, description: Seção alterada que originou o conflito.),
+      "intact_section": (type: str, description: Seção intacta que entra em conflito."), 
+      "description": (type: str, description: Descrição da natureza da contradição.),
+      "recommendation": (type: str, description: Sugestão de resolução do conflito.) 
+    }}
+  ]
   """
 
   @staticmethod
@@ -107,29 +146,27 @@ class ContradictionAnalysisService:
     raw_user_prompt = """Analise os seguintes blocos de alterações e suas referências cruzadas em busca de contradições lógicas (os textos estão na seguinte língua {language}):
 
     {context_window}
-    """.format({"language": language, "context_window": "{context_window}"})
+    """.format(**{"language": language, "context_window": "{context_window}"})
 
     prompt = ChatPromptTemplate.from_messages([
       ("system", raw_system_prompt), 
       ("user", raw_user_prompt)
     ])
     llm = MLModelsService.get_main_llm_model()
-    parser = JsonOutputParser(pydantic_object=ContradictionResult)
+    parser = JsonOutputParser()
     chain = prompt | llm | parser
-    result = ContradictionResult(total_conflicts=0)
-    conflict_id_counter = 0
+    result = ContradictionResultParser(total_conflicts=0)
     for context in context_windows:
       r = chain.invoke({"context_window": context})
 
-      if  hasattr(r, "model_dump"):
-        r = r.model_dump()
+      if not isinstance(r, list):
+        r = chain.invoke({"context_window": context})
 
-      for conflict in r["items"]:
-        conflict["conflict_id"] = f"c{conflict_id_counter}"
-        result.items.append(conflict)
-        result.total_conflicts += 1
-        conflict_id_counter += 1
-
+      if not isinstance(r, list):
+        raise Exception("Modelo não retornou uma lista como solicitado!")
+        
+      result.extend(r)
+      
     return result
 
   @staticmethod
